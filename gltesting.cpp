@@ -10,9 +10,18 @@
 using namespace std;
 using namespace glm;
 
-constexpr int NUM_BOIDS = 100;
-constexpr int W_WIDTH = 500;
-constexpr int W_HEIGHT = 500;
+constexpr int W_WIDTH = 1000;
+constexpr int W_HEIGHT = 1000;
+
+constexpr int NUM_BOIDS = 1000;
+constexpr float BOID_SIZE = 0.01f;
+
+constexpr float BOID_VIEW = 0.3f;
+constexpr float BOID_CLOSE = 0.1f;
+
+constexpr float ALIGNMENT = 0.01f;
+constexpr float COHESION = 0.01f;
+constexpr float SEPARATION = 0.04f;
 
 constexpr float TWO_PI = 6.28318531f;
 constexpr float PI = 3.14159265f;
@@ -52,14 +61,14 @@ constexpr vec3 hue2rgb(float hue)
 }
 
 static const GLfloat vertexData[] = {
-    -0.025f,
-    -0.05f,
+    -BOID_SIZE / 2,
+    -BOID_SIZE,
     0.0f,
-    0.025f,
-    -0.05f,
+    BOID_SIZE / 2,
+    -BOID_SIZE,
     0.0f,
     0.0f,
-    0.05f,
+    BOID_SIZE,
     0.0f,
 };
 
@@ -67,6 +76,16 @@ struct RadVelocity
 {
     float speed, angle;
 };
+
+vec2 velocityFromRadVelocity(RadVelocity radvel)
+{
+    return vec2(radvel.speed * cos(radvel.angle), radvel.speed * sin(radvel.angle));
+}
+
+RadVelocity radVelocityFromVelocity(vec2 velocity)
+{
+    return {length(velocity), atan2(velocity.y, velocity.x)};
+}
 
 // Boid object with position vector and radvelocity vector
 struct Boid
@@ -101,7 +120,7 @@ public:
                     {0.01f, angledist(gen)},
                     hue2rgb(hue)};
     }
-    vector<Boid> init_boids(int num)
+    vector<Boid> init_boids(int num, bool color = true)
     {
         vector<Boid> output;
         if (num <= 0)
@@ -111,7 +130,10 @@ public:
         float deltahue = 360.0f / num;
         for (int i = 0; i < num; ++i)
         {
-            output.push_back(makeBoid(currhue));
+            if (color)
+                output.push_back(makeBoid(currhue));
+            else
+                output.push_back(makeBoid());
             currhue += deltahue;
         }
         return output;
@@ -125,10 +147,126 @@ private:
     uniform_real_distribution<float> colordist;
 };
 
-vec2 velocityFromRadVelocity(RadVelocity radvel)
+class BoidRunner
 {
-    return vec2(radvel.speed * cos(radvel.angle), radvel.speed * sin(radvel.angle));
-}
+public:
+    BoidRunner(vector<Boid> boids) : flock(boids) {};
+    vector<Boid> getFlock() { return flock; }
+    void updateFlock()
+    {
+        for (Boid &currBoid : flock)
+        {
+            updateBoid(currBoid);
+
+            // loop back on window edges
+            if (currBoid.position.x > 1.0f || currBoid.position.x < -1.0f)
+            {
+                currBoid.position.x *= -1.0f;
+                // currBoid.rvelocity.angle = PI - currBoid.rvelocity.angle;
+            }
+            if (currBoid.position.y > 1.0f || currBoid.position.y < -1.0f)
+            {
+                currBoid.position.y *= -1.0f;
+                // currBoid.rvelocity.angle = TWO_PI - currBoid.rvelocity.angle;
+            }
+        }
+    };
+
+private:
+    // NOTE: Nothing about the flock involves order so a vector may not be ideal
+    vector<Boid> flock;
+    /* vector<Boid> getWithinRadius(Boid theBoid, float radius)
+    {
+        vector<Boid> withinRadius;
+        for (Boid &currBoid : flock)
+        {
+            if (&currBoid == &theBoid)
+                continue;
+            if (length(currBoid.position - theBoid.position) <= radius)
+                withinRadius.push_back(currBoid);
+        }
+        return withinRadius;
+    }
+    vec2 getGroupAvgPos(vector<Boid> group)
+    {
+        vec2 avgPos(0, 0);
+        for (Boid &currBoid : group)
+        {
+            avgPos.x += currBoid.position.x;
+            avgPos.y += currBoid.position.y;
+        }
+        avgPos.x /= group.size();
+        avgPos.y /= group.size();
+        return avgPos;
+    }
+    float getGroupAvgHeading(vector<Boid> group)
+    {
+        float avgHeading = 0.0f;
+        for (Boid &currBoid : group)
+        {
+            avgHeading += currBoid.rvelocity.angle;
+        }
+        avgHeading /= group.size();
+        return avgHeading;
+    }
+    vec2 getSeparated(Boid theBoid, vector<Boid> group)
+    {
+        vec2 closevec(0, 0);
+        for (Boid &currBoid : group)
+        {
+            closevec += theBoid.position - currBoid.position;
+        }
+        return closevec;
+    } */
+    
+    void updateBoid(Boid &theBoid)
+    {
+        vec2 pos = theBoid.position;
+
+        int numNear = 0;
+        float avgHeading = 0;
+        vec2 avgPos(0, 0);
+        vec2 closeVec(0, 0);
+
+        for (Boid &other : flock)
+        {
+            if (&other != &theBoid && length(other.position - pos) <= BOID_VIEW)
+            {
+                numNear++;
+                avgPos += other.position;
+                avgHeading += other.rvelocity.angle;
+
+                if (length(other.position - pos) <= BOID_CLOSE)
+                {
+                    closeVec += pos - other.position;
+                }
+            }
+        }
+        if(numNear > 0)
+        {
+            avgPos.x /= numNear;
+            avgPos.y /= numNear;
+            avgHeading /= numNear;
+        } else {
+            avgPos = pos;
+            avgHeading = theBoid.rvelocity.angle;
+        }
+
+        // Separation
+        theBoid.rvelocity.angle += SEPARATION * (atan2(closeVec.y, closeVec.x) - theBoid.rvelocity.angle);
+
+        // Alignment
+        theBoid.rvelocity.angle += ALIGNMENT * (avgHeading - theBoid.rvelocity.angle);
+
+        // Cohesion
+        vec2 diff = avgPos - pos;
+        float diffAngle = atan2(diff.y, diff.x);
+        theBoid.rvelocity.angle += COHESION * (diffAngle - theBoid.rvelocity.angle);
+
+        // Update position
+        theBoid.position += velocityFromRadVelocity(theBoid.rvelocity);
+    }
+};
 
 static void printShaderError(GLuint shader)
 {
@@ -190,7 +328,10 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    GLFWwindow *window = glfwCreateWindow(W_WIDTH, W_HEIGHT, "Boids", nullptr, nullptr);
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+    GLFWwindow *window = glfwCreateWindow(mode->width, mode->height, "Boids", monitor, NULL);
     if (window == nullptr)
     {
         fprintf(stderr, "Failed to open GLFW window.\n");
@@ -284,33 +425,20 @@ int main()
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
     BoidGenerator bgen;
-    vector<Boid> boids = bgen.init_boids(NUM_BOIDS);
+    BoidRunner theBoids(bgen.init_boids(NUM_BOIDS, true));
 
     while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS &&
            glfwWindowShouldClose(window) == 0)
     {
 
         // 1. Update boids
-        for (Boid &currBoid : boids)
-        {
-            currBoid.position += velocityFromRadVelocity(currBoid.rvelocity);
-
-            // loop back on window edges
-            if (currBoid.position.x > 1.0f || currBoid.position.x < -1.0f)
-            {
-                currBoid.position.x *= -1.0f;
-            }
-            if (currBoid.position.y > 1.0f || currBoid.position.y < -1.0f)
-            {
-                currBoid.position.y *= -1.0f;
-            }
-        }
+        theBoids.updateFlock();
 
         // 2. Render
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(program);
 
-        for (Boid &currBoid : boids)
+        for (Boid &currBoid : theBoids.getFlock())
         {
             glUniform3fv(glGetUniformLocation(program, "uColor"), 1, &currBoid.color[0]);
             mat4 model = translate(mat4(1.0f), vec3(currBoid.position, 0.0f));
