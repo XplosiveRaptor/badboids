@@ -10,15 +10,26 @@
 using namespace std;
 using namespace glm;
 
-constexpr int W_WIDTH = 1000;
-constexpr int W_HEIGHT = 1000;
+constexpr bool FULLSCREEN = true;
+// TODO: Incorporate screen edges so Boids turn
+constexpr int W_WIDTH = 1000;  // if FULLSCREEN is false
+constexpr int W_HEIGHT = 1000; // if FULLSCREEN is false
+
+constexpr float MAX_HUE = 360.0f; // default 360.0f
+constexpr float MIN_HUE = 0.0f;   // default 0.0f
 
 constexpr int NUM_BOIDS = 1000;
 constexpr float BOID_SIZE = 0.01f;
 
+// TODO: Allow boid's speeds to vary
+constexpr float BOID_SPEED = 0.01f;
+
+// TODO: Implement blind spot
 constexpr float BOID_VIEW = 0.3f;
 constexpr float BOID_CLOSE = 0.1f;
 
+// TODO: Display values in window
+// TODO: Allow for changing values during running
 constexpr float ALIGNMENT = 0.01f;
 constexpr float COHESION = 0.01f;
 constexpr float SEPARATION = 0.04f;
@@ -88,6 +99,9 @@ RadVelocity radVelocityFromVelocity(vec2 velocity)
 }
 
 // Boid object with position vector and radvelocity vector
+// TODO: Boid and calculations would be easier with cartesian velocity
+// TODO: Allow boids to be part of different flocks
+// TODO: Allow boids to have a bias
 struct Boid
 {
     // Position vector
@@ -111,13 +125,13 @@ public:
     Boid makeBoid()
     {
         return Boid{vec2(posdist(gen), posdist(gen)),
-                    {0.01f, angledist(gen)},
+                    {BOID_SPEED, angledist(gen)},
                     vec3(1.0f, 1.0f, 1.0f)};
     }
     Boid makeBoid(float hue)
     {
         return Boid{vec2(posdist(gen), posdist(gen)),
-                    {0.01f, angledist(gen)},
+                    {BOID_SPEED, angledist(gen)},
                     hue2rgb(hue)};
     }
     vector<Boid> init_boids(int num, bool color = true)
@@ -126,8 +140,8 @@ public:
         if (num <= 0)
             return output;
 
-        float currhue = 0.0f;
-        float deltahue = 360.0f / num;
+        float currhue = MIN_HUE;
+        float deltahue = (MAX_HUE - MIN_HUE) / num;
         for (int i = 0; i < num; ++i)
         {
             if (color)
@@ -218,7 +232,7 @@ private:
         }
         return closevec;
     } */
-    
+
     void updateBoid(Boid &theBoid)
     {
         vec2 pos = theBoid.position;
@@ -242,12 +256,14 @@ private:
                 }
             }
         }
-        if(numNear > 0)
+        if (numNear > 0)
         {
             avgPos.x /= numNear;
             avgPos.y /= numNear;
             avgHeading /= numNear;
-        } else {
+        }
+        else
+        {
             avgPos = pos;
             avgHeading = theBoid.rvelocity.angle;
         }
@@ -256,7 +272,7 @@ private:
         theBoid.rvelocity.angle += SEPARATION * (atan2(closeVec.y, closeVec.x) - theBoid.rvelocity.angle);
 
         // Alignment
-        theBoid.rvelocity.angle += ALIGNMENT * (avgHeading - theBoid.rvelocity.angle);
+        theBoid.rvelocity.angle += numNear > 0 ? ALIGNMENT * (avgHeading / numNear - theBoid.rvelocity.angle) : 0;
 
         // Cohesion
         vec2 diff = avgPos - pos;
@@ -328,8 +344,8 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
 
     GLFWwindow *window = glfwCreateWindow(mode->width, mode->height, "Boids", monitor, NULL);
     if (window == nullptr)
